@@ -118,7 +118,7 @@ public class StaticFindingsExtractor {
   result.metadata=new Metadata(prefer(find(text,"(?m)^package: name='([^']*)'"),m.packageName()),
    prefer(find(text,"(?m)^application-label:'([^']*)'"),m.applicationName()),
    prefer(find(text,"versionName='([^']*)'"),m.versionName()),prefer(find(text,"versionCode='([^']*)'"),m.versionCode()),
-   prefer(find(text,"(?m)^sdkVersion:'([^']*)'"),m.minSdk()),prefer(find(text,"(?m)^targetSdkVersion:'([^']*)'"),m.targetSdk()));
+   prefer(find(text,"(?m)^(?:sdkVersion|minSdkVersion):'([^']*)'"),m.minSdk()),prefer(find(text,"(?m)^targetSdkVersion:'([^']*)'"),m.targetSdk()));
   Matcher permissions=Pattern.compile("uses-permission(?:-sdk-23)?: name='([^']*)'").matcher(text);
   while(permissions.find()&&result.permissions.size()<LIMIT)addPermission(permissions.group(1),result);
  }

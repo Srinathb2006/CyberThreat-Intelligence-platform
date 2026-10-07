@@ -9,11 +9,13 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 @RestController @RequestMapping("/api")
 public class ApkController {
- private final ApkUploadService upload;private final ApkAnalysisState state;private final ApkAnalysisOrchestrator orchestrator;private final AnalysisProperties config;private final AnalysisProcessRunner runner;
- public ApkController(ApkUploadService upload,ApkAnalysisState state,ApkAnalysisOrchestrator orchestrator,AnalysisProperties config,AnalysisProcessRunner runner){this.upload=upload;this.state=state;this.orchestrator=orchestrator;this.config=config;this.runner=runner;}
+ private final ApkUploadService upload;private final ApkAnalysisState state;private final ApkAnalysisOrchestrator orchestrator;private final AnalysisProperties config;private final AnalysisProcessRunner runner;private final YaraAnalyzerService yara;private final AndroguardAnalyzerService androguard;
+ public ApkController(ApkUploadService upload,ApkAnalysisState state,ApkAnalysisOrchestrator orchestrator,AnalysisProperties config,AnalysisProcessRunner runner,YaraAnalyzerService yara,AndroguardAnalyzerService androguard){this.upload=upload;this.state=state;this.orchestrator=orchestrator;this.config=config;this.runner=runner;this.yara=yara;this.androguard=androguard;}
  @GetMapping("/apk/config") public Map<String,Object> config(){
   Map<String,Object> tools=new LinkedHashMap<>();
   for(String name:List.of("jadx","apktool","aapt")){var tool=config.getTools().get(name);tools.put(name,Map.of("available",runner.available(name),"enabled",tool!=null&&tool.isEnabled()));}
+  var androguard=config.getTools().get("androguard");tools.put("androguard",Map.of("available",this.androguard.available(),"enabled",androguard!=null&&androguard.isEnabled()));
+  var yaraConfig=config.getTools().get("yara");tools.put("yara",Map.of("available",yara.available(),"enabled",yaraConfig!=null&&yaraConfig.isEnabled()));
   return Map.of("maxApkSize",config.getMaxApkSize().toBytes(),"tools",tools);
  }
  @PostMapping(value="/apk/upload",consumes=MediaType.MULTIPART_FORM_DATA_VALUE) @ResponseStatus(HttpStatus.CREATED)

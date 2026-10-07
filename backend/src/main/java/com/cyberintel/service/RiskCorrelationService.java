@@ -6,6 +6,9 @@ import com.cyberintel.config.RiskScoringProperties.SeverityMultipliers;
 import com.cyberintel.config.RiskScoringProperties.ConfidenceMultipliers;
 
 import com.cyberintel.dto.ApkDtos;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.cyberintel.entity.*;
 import com.cyberintel.repository.*;
 import org.springframework.stereotype.Service;
@@ -27,6 +30,8 @@ public class RiskCorrelationService {
     private final IocRepository iocRepository;
     private final ThreatMatchRepository threatMatchRepository;
     private final ScanRepository scanRepository;
+    private final AlertService alertService;
+    private final ObjectMapper objectMapper;
 
     public RiskCorrelationService(
             RiskScoringProperties scoringProperties,
@@ -36,7 +41,9 @@ public class RiskCorrelationService {
             MalwareFindingRepository malwareFindingRepository,
             IocRepository iocRepository,
             ThreatMatchRepository threatMatchRepository,
-            ScanRepository scanRepository) {
+            ScanRepository scanRepository,
+            AlertService alertService,
+            ObjectMapper objectMapper) {
         this.scoringProperties = scoringProperties;
         this.riskAssessmentRepository = riskAssessmentRepository;
         this.riskIndicatorRepository = riskIndicatorRepository;
@@ -45,6 +52,8 @@ public class RiskCorrelationService {
         this.iocRepository = iocRepository;
         this.threatMatchRepository = threatMatchRepository;
         this.scanRepository = scanRepository;
+        this.alertService = alertService;
+        this.objectMapper = objectMapper;
     }
 
     public ApkDtos.RiskAssessmentResult calculateRisk(Long scanId) {
@@ -94,6 +103,11 @@ public class RiskCorrelationService {
         assessment.setRiskLevel(riskLevel);
         assessment.setConfidence(confidence);
         assessment.setSummary(summary);
+        try {
+            assessment.setRecommendations(objectMapper.writeValueAsString(recommendations));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Unable to save risk recommendations", e);
+        }
         assessment.setIsLatest(true);
         assessment.setCreatedAt(Instant.now());
         assessment.setUpdatedAt(Instant.now());
@@ -110,6 +124,7 @@ public class RiskCorrelationService {
             scanRepository.save(scan);
         }
 
+        alertService.generateAlertsFromAssessment(scanId);
         return toResult(assessment, breakdown, indicators, recommendations);
     }
 
@@ -120,7 +135,7 @@ public class RiskCorrelationService {
         List<RiskIndicator> indicators = riskIndicatorRepository.findByRiskAssessmentIdOrderByContributionDesc(assessment.getId());
         ApkDtos.RiskBreakdownDto breakdown = buildBreakdownFromIndicators(indicators);
 
-        return toResult(assessment, breakdown, indicators, generateRecommendationsFromIndicators(indicators));
+        return toResult(assessment, breakdown, indicators, savedRecommendations(assessment, indicators));
     }
 
     public List<ApkDtos.RiskIndicatorDto> getIndicators(Long scanId) {
@@ -144,7 +159,20 @@ public class RiskCorrelationService {
                 .orElseThrow(() -> new IllegalArgumentException("No risk assessment found for scanId: " + scanId));
 
         List<RiskIndicator> indicators = riskIndicatorRepository.findByRiskAssessmentId(assessment.getId());
-        return generateRecommendationsFromIndicators(indicators);
+        return savedRecommendations(assessment, indicators);
+    }
+
+    private List<ApkDtos.RiskRecommendationDto> savedRecommendations(
+            RiskAssessment assessment, List<RiskIndicator> indicators) {
+        // Assessments created before the snapshot column retain the legacy fallback.
+        if (assessment.getRecommendations() == null) {
+            return generateRecommendationsFromIndicators(indicators);
+        }
+        try {
+            return objectMapper.readValue(assessment.getRecommendations(), new TypeReference<>() {});
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Unable to read risk recommendations", e);
+        }
     }
 
     private CategoryScores calculateCategoryScores(EvidenceCollector collector) {

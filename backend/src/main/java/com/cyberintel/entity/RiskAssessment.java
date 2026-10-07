@@ -30,6 +30,9 @@ public class RiskAssessment {
     @Column(name = "summary", length = 4000)
     private String summary;
 
+    @Column(name = "recommendations", columnDefinition = "TEXT")
+    private String recommendations;
+
     @Column(name = "is_latest", nullable = false)
     private Boolean isLatest = true;
 
@@ -63,6 +66,9 @@ public class RiskAssessment {
 
     public String getSummary() { return summary; }
     public void setSummary(String summary) { this.summary = summary; }
+
+    public String getRecommendations() { return recommendations; }
+    public void setRecommendations(String recommendations) { this.recommendations = recommendations; }
 
     public Boolean getIsLatest() { return isLatest; }
     public void setIsLatest(Boolean isLatest) { this.isLatest = isLatest; }

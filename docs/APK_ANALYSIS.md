@@ -1,96 +1,63 @@
-# Step 2: Static APK reverse engineering
+# Static APK analysis
 
-The existing Java 25 / Spring Boot and JavaScript React stack is retained. APK bytes are only read, hashed, decoded, and inspected. No emulator, installer, APK launcher, rebuild command, or user-supplied executable is supported.
+APK Analysis is the upload and reverse-engineering pipeline. The backend reads APK bytes as an archive, hashes them, and runs only configured local static tools. It never installs, launches, or executes the APK. A successful static scan supplies evidence for later, separate malware-rule, IOC, threat-intelligence, and risk actions.
 
-## Using the workflow
+## Workflow and API
 
-1. Start PostgreSQL and the backend using the environment variables in `backend/.env.example`.
-2. Set the frontend `VITE_API_BASE_URL` to that server's `/api` URL. Restart Vite after changing its environment.
-3. Create an account on the login page or sign in with a registered account. The development demo login is intentionally barred from uploading to the live API.
-4. Open APK Analysis and choose/drop an `.apk`. Upload validates and stores it, computes SHA-256 and MD5, and creates an owned scan.
-5. Review the hash and select **Scan**. Progress is polled; cancellation stops the managed process. Previous scans reload from PostgreSQL.
-6. Inspect Overview, APK Information, Permissions, Components, API Calls, Strings, URLs, and Tool Status. Extracted URLs are displayed as text and never visited.
+Use a registered backend account; the frontend's development demo login cannot call the authenticated API.
 
-## REAL versus MOCK
+| Action | Endpoint | Result |
+| --- | --- | --- |
+| Read limits and tool availability | `GET /api/apk/config` | Maximum APK size and enabled/available states for JADX, Apktool, aapt, Androguard, and YARA. |
+| Upload | `POST /api/apk/upload` (`file` multipart field) | 201, scan ID, original display name, size, SHA-256, `UPLOADED`. |
+| Start / cancel | `POST /api/apk-analysis/{id}/start` or `/cancel` | Queued job or terminal cancellation. |
+| Poll / history | `GET /api/apk-analysis/{id}` or `GET /api/apk-analysis` | Stored status, tool states, metadata, findings, and latest 50 owned scans. |
+| Derive malware findings and IOCs | `POST /api/static-analysis/{scanId}` | Rule-based findings from stored APK results. This is a separate action. |
+| Match IOCs | `POST /api/threat-intelligence/correlate/{scanId}` | Compares extracted IOCs with the local database catalog. |
+| Calculate risk | `POST /api/risk-correlation/{scanId}/calculate` | Persists an assessment and invokes alert generation. |
+| Run / reload YARA | `POST` or `GET /api/apk-analysis/{scanId}/yara` | Separate local rule scan of retained extracted files, or labeled demo fallback. |
 
-- With no enabled and available tool, the backend creates **MOCK** findings determined by the uploaded SHA-256. Hashes and file size describe the actual upload; metadata, permissions, components, source counts, and findings are explicitly synthetic.
-- With at least one available tool, the scan is **REAL**. Missing tools are marked `UNAVAILABLE`. Successful tools can produce a partial real result, with unavailable/failed/timed-out tools shown individually. No mock findings are added.
-- If every attempted real tool fails, the scan fails. It does not turn into a mock success. Missing aapt does not prevent Apktool manifest/metadata extraction.
-- Tool availability checks configuration, a regular file, and executable support. A damaged tool or missing runtime dependency may still fail at execution, which is reported as `FAILED`.
+The frontend polls while the APK job is active and shows stages, partial failures, hashes, manifest data, permissions, components, APIs, strings, URLs, source inventory, and tool status. Extracted addresses are shown as text; they are not visited. Risk and report endpoints are described in [RISK_ALERTS_REPORTS.md](RISK_ALERTS_REPORTS.md).
 
-Permissions and API references are indicators, not proof of malware. There is no final malware verdict, IOC matching, correlation, YARA scoring, phishing analysis, or risk score in this step.
+## Real and mock modes
 
-## Configuring real tools
+The core APK scan is `REAL` when at least one enabled static analyzer is available: JADX, Apktool, aapt, or Androguard. Tool outcomes are recorded individually (`SUCCESS`, `UNAVAILABLE`, `FAILED`, `TIMEOUT`, `CANCELLED`, or similar). A partial real scan may finish with warnings, but synthetic findings are not mixed into it. If every attempted real tool fails, the scan fails.
 
-Download tools from their official projects: [JADX releases](https://github.com/skylot/jadx/releases), [Apktool releases](https://github.com/iBotPeaches/Apktool/releases), and [Android Build Tools / aapt2](https://developer.android.com/tools/aapt2). Keep the tool directory writable only by the operator.
+If none is enabled and available, `MockAnalysisFactory` generates deterministic example metadata and findings from the real uploaded SHA-256. The mode and all four core tool statuses are `MOCK`. The hash and file size still describe the uploaded bytes; the metadata and findings do not. Androguard unavailability therefore uses this existing mock fallback only when the whole core scan is mock. YARA has its own separately labeled `DEMO` result when its executable or rules are unavailable.
 
-Set `JADX_ENABLED=true`, `APKTOOL_ENABLED=true`, and optionally `AAPT_ENABLED=true`, with absolute paths in `JADX_PATH`, `APKTOOL_PATH`, and `AAPT_PATH`. Flags default to false so deployment never unexpectedly launches a tool merely because it is on PATH.
+Dashboard trend/distribution charts and some dashboard fallback counts/events are also examples; they are not APK scan output. Local threat-intelligence seed records are demonstration content, even when a database match is real against that catalog.
 
-On Windows, configure the JADX distribution's `lib/jadx-<version>-all.jar`, the Apktool JAR, and `aapt.exe` or `aapt2.exe`. The runner invokes the server JDK directly for JARs. JADX uses the JAR directory as its classpath and `jadx.cli.JadxCLI`; Apktool uses `java -jar`. `.bat`, `.cmd`, and `.ps1` launchers are deliberately unsupported to avoid shell interpretation. On Unix, a trusted executable CLI launcher is also supported. Tool paths never come from requests.
+## Tool behavior and configuration
 
-Fixed argument lists:
+All tools are disabled by default. Configure trusted executables through `backend/.env` or environment variables; request bodies cannot choose commands or paths.
 
-```text
-JADX:    --no-res -j 1 -d <generated output>/sources <generated upload>.apk
-Apktool: d -f -p <generated output>/framework -o <generated output>/decoded <generated upload>.apk
-aapt:    dump badging <generated upload>.apk
-```
+| Tool | Configuration | Fixed static operation |
+| --- | --- | --- |
+| JADX | `JADX_ENABLED`, `JADX_PATH` | Decompile code into a controlled `jadx/sources` directory with one worker. |
+| Apktool | `APKTOOL_ENABLED`, `APKTOOL_PATH` | Decode manifest/resources/smali into a controlled `apktool/decoded` directory. |
+| aapt | `AAPT_ENABLED`, `AAPT_PATH` | `dump badging` for package metadata. |
+| Androguard | `ANDROGUARD_ENABLED`, `ANDROGUARD_PATH` | Local Python executable imports Androguard and parses APK/DEX through a bundled helper. |
+| YARA | `YARA_ENABLED`, `YARA_PATH`, `YARA_RULES_DIRECTORY` | Separate on-demand scan of extracted files with local `.yar`/`.yara` rules. |
 
-The API does not reveal storage locations or raw tool logs. stdout/stderr are merged and drained into a capped private `tool.log` (256 KiB). Each process has a timeout, cancellation checks, tracked child-process termination, and output size/file-count checks. Java tools receive a 512 MiB heap limit. These application controls are not an OS security sandbox: deploy the backend/tools under a low-privilege account with filesystem/network restrictions when accepting untrusted uploads. Do not deploy this single-process worker queue across multiple backend instances without a shared job coordinator.
+The managed runner uses a process timeout, bounded output and entry limits, child-process termination on cancellation, and private logs. It does not provide an OS-level sandbox. The Androguard helper uses the existing runner; [ANDROGUARD_ANALYSIS.md](ANDROGUARD_ANALYSIS.md) describes its metadata and merge behavior. [YARA_ANALYSIS.md](YARA_ANALYSIS.md) describes rule format, saved matches, and demo behavior.
 
-## Storage and limits
+## Storage, extraction, and limits
 
-```text
-analysis/
-  uploads/<random UUID>.apk
-  scans/<numeric database scan id>/
-    jadx/
-    apktool/
-    aapt/
-    extracted/
-    temporary/
-```
+Uploads receive UUID storage names beneath `UPLOAD_DIRECTORY`. Per-scan artifacts live beneath `ANALYSIS_DIRECTORY/scans/{id}`. The original filename is used only for display. Retained database results survive hourly cleanup of expired upload and tool-output files. The default retention period is seven days. An unstarted expired upload cannot later be scanned.
 
-`UPLOAD_DIRECTORY` and `ANALYSIS_DIRECTORY` are trusted server configuration. The original filename is display-only. Storage paths reject symlink ancestors. Archive checks reject traversal, absolute/drive paths, duplicate case-folded entries, CRC errors, missing/malformed manifests, excessive compression, and over-limit expansion. XML external entities and DTDs are disabled. A binary manifest header or well-formed textual manifest is accepted for static inspection; this is not Android signature or installability validation.
+Upload validation checks extension, MIME hint, ZIP integrity and entry names, bounded expansion, and manifest structure. These checks are not Android signature verification or proof of installability. The extractor reads bounded text from JADX and Apktool output, then merges Androguard metadata, permissions, DEX inventory, and selected method references without duplicating permission or API names. The resulting references are heuristics; a DEX method reference does not prove invocation. Native libraries are counted but not executed or disassembled.
 
-| Setting | Default |
+| Limit | Default |
 | --- | --- |
-| `MAX_APK_SIZE` | 50MB compressed upload |
-| `MAX_APK_EXPANDED_BYTES` | 268435456 (256 MiB) |
-| `MAX_APK_ENTRIES` | 20000 |
-| `MAX_ANALYSIS_OUTPUT_BYTES` | 536870912 (512 MiB per tool output) |
-| `ANALYSIS_TIMEOUT_SECONDS` | 120 per tool |
-| `ANALYSIS_RETENTION_DAYS` | 7 |
+| Compressed APK | `MAX_APK_SIZE=50MB` |
+| Expanded archive | `MAX_APK_EXPANDED_BYTES=268435456` (256 MiB) |
+| Archive/output entries | `MAX_APK_ENTRIES=20000` |
+| Tool output | `MAX_ANALYSIS_OUTPUT_BYTES=536870912` (512 MiB) |
+| Per-tool timeout | `ANALYSIS_TIMEOUT_SECONDS=120` |
+| Active/queued jobs | 2 active, 8 queued |
 
-The worker pool permits two running jobs and eight queued jobs. A full queue returns 429 and leaves the upload retryable. Running/queued jobs interrupted by a server restart become FAILED, rather than remaining stuck. Re-upload to retry a terminal scan. Cancellation is terminal and subsequent worker updates cannot overwrite it.
+The text extractor additionally reads at most 16 MiB total and 2 MiB per file, retaining bounded lists of strings, components, permissions, and API references. A full worker queue returns 429. Interrupted jobs are marked failed after restart; a terminal scan must be re-uploaded to retry. Cancellation is terminal.
 
-Temporary output is cleaned after a job. An hourly retention task removes expired upload/output files while retaining database findings; it skips active jobs and gives cancelled jobs a termination grace period. An unstarted expired upload becomes FAILED. Storage errors produce safe API errors without exposing filesystem paths.
+## Security boundary
 
-## API contract
-
-Every endpoint requires a bearer JWT. A scan is visible and controllable only by its owner; foreign scan IDs return 404.
-
-| Endpoint | Behavior |
-| --- | --- |
-| `GET /api/apk/config` | Upload size limit and tool availability, no executable paths |
-| `POST /api/apk/upload` | multipart field `file`; 201 with scan ID, original display name, size, SHA-256, UPLOADED |
-| `POST /api/apk-analysis/{scanId}/start` | 202 with current state; starts only a new UPLOADED scan |
-| `POST /api/apk-analysis/{scanId}/cancel` | Cancels queued/running/unstarted work; terminal scans are unchanged |
-| `GET /api/apk-analysis/{scanId}` | Metadata, hashes, mode, tool states, stage/progress, findings, timestamps |
-| `GET /api/apk-analysis` | Latest 50 owned scans and their results |
-
-Upload validation and hashes complete before the upload response. The UI shows that server-processing period without inventing individual upload-stage percentages. Analysis stages are persisted and polled after start. State updates are separate from HTTP handlers so SSE or a persistent job queue can replace polling later.
-
-## Extraction scope
-
-- Apktool XML supplies package metadata, permissions, activity/alias/service/receiver/provider components, exported flags, and permission guards. Resource labels and `apktool.yml` supply fallbacks; successful aapt badging enriches metadata.
-- JADX Java and Apktool smali/text outputs supply bounded heuristic API references, packages, classes, methods, quoted strings, URLs, domains, IPv4 candidates, emails, file paths, and command-like keywords.
-- Component defaults follow manifest/SDK rules where determinable; an ambiguous exported flag is null rather than an invented certainty.
-- API method attribution is null where not reliably determined. Counts represent extracted/retained references, not a full semantic call graph. Obfuscation, reflection, native code, and encrypted strings limit static extraction.
-- Extraction reads at most 16 MiB of eligible text and 2 MiB per file, retaining up to 1,000 strings/components/permissions and 500 API references. Files/counts and caps appear in `sourceSummary`. Native-library and asset counts are inventory only; native binaries are not executed or disassembled.
-
-## Verification
-
-Run `mvn verify` in `backend` and `npm run lint`, `npm test`, `npm run build` in `frontend`. Backend fixtures are harmless synthetic archives/source text, not malware. Process tests launch only a dedicated Java test helper to verify stdout/stderr, timeout, and cancellation.
-
-Downloaded tools and the benign Appium ApiDemos APK used for live verification are kept under the ignored `.verification` folder; they are not repository fixtures or production configuration. Official download sources are recorded there. No APK is executed during verification.
+The upload and core APK result routes enforce scan ownership. Several later legacy routes for static findings, threat matching, risk, reports, and scan history currently require authentication but do not enforce that the requested scan belongs to the caller. See the README's security limitations before using multiple untrusted accounts. External parsers still process untrusted input; isolate them with OS permissions and network restrictions for deployment. No result is a malware verdict.

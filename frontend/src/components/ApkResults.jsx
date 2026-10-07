@@ -5,15 +5,16 @@ import { StatusBadge } from './apkStatus';
 import { formatBytes, formatDate, activeStatuses } from '../utils/apk';
 import { calculateRisk, getRiskAssessment, getRiskBreakdown, getRiskRecommendations } from '../api/scanApi';
 import { downloadReport } from '../api/reportApi';
+import { getYaraAnalysis, runYaraAnalysis } from '../api/scanApi';
 export default function ResultContent({ tab, result }) {
   const [query, setQuery] = useState(''); const [page, setPage] = useState(0); const meta = result.metadata || {}; const source = result.sourceSummary || {};
   const present = value => value == null || value === '' ? 'Not available' : String(value);
   const metadataRows = [['Application', meta.applicationName], ['Package', meta.packageName], ['Version name', meta.versionName], ['Version code', meta.versionCode], ['Minimum SDK', meta.minSdk], ['Target SDK', meta.targetSdk], ['File size', formatBytes(result.fileSize)], ['Analysis mode', result.analysisMode], ['Created', formatDate(result.createdAt)], ['Started', formatDate(result.startedAt)], ['Completed', formatDate(result.completedAt)]];
   const hashBlock = <div className="hash-block"><div><Fingerprint size={15} /><strong>SHA-256</strong></div><code>{result.sha256 || 'Calculated after upload'}</code>{result.md5 && <><div><Fingerprint size={15} /><strong>MD5 · identification only</strong></div><code>{result.md5}</code></>}</div>;
-  if (tab === 'Overview') return <div className="result-overview"><div className="result-summary"><span className="summary-app-icon"><PackageSearch size={31} /></span><div><h3>{meta.applicationName || result.fileName}</h3><p className="mono">{meta.packageName || 'Package details are not yet available'}</p><small>{meta.versionName ? `Version ${meta.versionName}` : 'Version not available'} · {formatBytes(result.fileSize)}</small></div></div><div className="finding-counts">{[['Permissions', result.permissions?.length || 0], ['Relevant API patterns', result.apiFindings?.length || 0], ['URLs', result.urls?.length || 0], ['Components', result.components?.length || 0]].map(([label, count]) => <div key={label}><strong>{count}</strong><span>{label}</span></div>)}</div>{hashBlock}<div style={{ display: 'flex', gap: '8px', margin: '14px 0' }}><Button variant="secondary" onClick={() => downloadReport(result.id, 'pdf')}><Download size={14} /> Download PDF Report</Button><Button variant="secondary" onClick={() => downloadReport(result.id, 'json')}>Export JSON</Button><Button variant="secondary" onClick={() => downloadReport(result.id, 'summary')}>Summary CSV</Button></div><div className="info-note"><ShieldCheck size={18} />{result.status === 'UPLOADED' ? 'The file is stored and fingerprinted. Start the scan to inspect its contents.' : 'These results describe static indicators. Sensitive permissions and APIs can also be used by legitimate applications.'}</div></div>;
+  if (tab === 'Overview') return <div className="result-overview"><div className="result-summary"><span className="summary-app-icon"><PackageSearch size={31} /></span><div><h3>{meta.applicationName || result.fileName}</h3><p className="mono">{meta.packageName || 'Package details are not yet available'}</p><small>{meta.versionName ? `Version ${meta.versionName}` : 'Version not available'} · {formatBytes(result.fileSize)}</small></div></div><div className="finding-counts">{[['Permissions', result.permissions?.length || 0], ['Relevant API patterns', result.apiFindings?.length || 0], ['URLs', result.urls?.length || 0], ['Components', result.components?.length || 0]].map(([label, count]) => <div key={label}><strong>{count}</strong><span>{label}</span></div>)}</div>{hashBlock}<div style={{ display: 'flex', gap: '8px', margin: '14px 0' }}><Button variant="secondary" onClick={() => downloadReport(result.scanId, 'pdf')}><Download size={14} /> Download PDF Report</Button><Button variant="secondary" onClick={() => downloadReport(result.scanId, 'json')}>Export JSON</Button><Button variant="secondary" onClick={() => downloadReport(result.scanId, 'summary')}>Summary CSV</Button></div><div className="info-note"><ShieldCheck size={18} />{result.status === 'UPLOADED' ? 'The file is stored and fingerprinted. Start the scan to inspect its contents.' : 'These results describe static indicators. Sensitive permissions and APIs can also be used by legitimate applications.'}</div></div>;
 
-  if (tab === 'APK Information') return <div className="result-information"><div className="metadata-grid">{metadataRows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{present(value)}</strong></div>)}</div>{hashBlock}<h3 className="source-summary-title">Extracted source inventory</h3><div className="source-counts">{[['Java files', source.javaFiles], ['Smali files', source.smaliFiles], ['Resources', source.resourceFiles], ['Assets', source.assets], ['Native libraries', source.nativeLibraries]].map(([label, value]) => <span key={label}><strong>{value || 0}</strong>{label}</span>)}</div>{[['Packages', source.packages], ['Classes', source.classes], ['Methods', source.methods]].map(([label, values]) => <details className="source-details" key={label}><summary>{label} <span>{values?.length || 0}</span></summary>{values?.length ? <pre>{values.join('\n')}</pre> : <p>No entries extracted.</p>}</details>)}</div>;
-  if (tab === 'Tool Status') return <div className="tool-results"><div className="tool-status-intro"><h3>Analysis coverage</h3><p>Each tool reports its own outcome. A completed scan can contain partial results.</p></div>{['jadx', 'apktool', 'aapt'].map(name => <div className="tool-status-row" key={name}><span className="scan-file-icon"><FileCode2 size={22} /></span><div><h3>{name === 'jadx' ? 'JADX' : name === 'apktool' ? 'Apktool' : 'aapt'}</h3><p>{name === 'jadx' ? 'Java source, classes, methods, and API patterns' : name === 'apktool' ? 'Manifest, resources, smali, and Android components' : 'Application metadata and package properties'}</p></div><StatusBadge status={result.toolStatus?.[name] || 'NOT_RUN'} /></div>)}<div className="info-note">{result.analysisMode === 'MOCK' ? 'MOCK means the backend generated deterministic sample output because required tools were not available. It is not evidence from the uploaded APK.' : 'UNAVAILABLE means a tool is disabled or missing. FAILED and TIMEOUT indicate incomplete coverage. No mock findings are added to real analyses.'}</div></div>;
+  if (tab === 'APK Information') return <div className="result-information"><div className="metadata-grid">{metadataRows.map(([label, value]) => <div key={label}><span>{label}</span><strong>{present(value)}</strong></div>)}</div>{hashBlock}<h3 className="source-summary-title">Extracted source inventory</h3><div className="source-counts">{[['Java files', source.javaFiles], ['Smali files', source.smaliFiles], ['Resources', source.resourceFiles], ['Assets', source.assets], ['Native libraries', source.nativeLibraries], ...(result.toolStatus?.androguard === 'SUCCESS' ? [['DEX files', source.dexFileNames?.length], ['DEX classes', source.dexClassCount], ['DEX methods', source.dexMethodCount]] : [])].map(([label, value]) => <span key={label}><strong>{value || 0}</strong>{label}</span>)}</div>{[['Packages', source.packages], ['Classes', source.classes], ['Methods', source.methods], ...(result.toolStatus?.androguard === 'SUCCESS' ? [['DEX files', source.dexFileNames]] : [])].map(([label, values]) => <details className="source-details" key={label}><summary>{label} <span>{values?.length || 0}</span></summary>{values?.length ? <pre>{values.join('\n')}</pre> : <p>No entries extracted.</p>}</details>)}</div>;
+  if (tab === 'Tool Status') return <div className="tool-results"><div className="tool-status-intro"><h3>Analysis coverage</h3><p>Each tool reports its own outcome. A completed scan can contain partial results.</p></div>{['jadx', 'apktool', 'aapt', 'androguard'].map(name => <div className="tool-status-row" key={name}><span className="scan-file-icon"><FileCode2 size={22} /></span><div><h3>{name === 'jadx' ? 'JADX' : name === 'apktool' ? 'Apktool' : name === 'androguard' ? 'Androguard' : 'aapt'}</h3><p>{name === 'jadx' ? 'Java source, classes, methods, and API patterns' : name === 'apktool' ? 'Manifest, resources, smali, and Android components' : name === 'androguard' ? 'APK and DEX metadata, permissions, and method references' : 'Application metadata and package properties'}</p></div><StatusBadge status={result.toolStatus?.[name] || 'NOT_RUN'} /></div>)}<div className="info-note">{result.analysisMode === 'MOCK' ? 'MOCK means the backend generated deterministic sample output because required tools were not available. It is not evidence from the uploaded APK.' : 'UNAVAILABLE means a tool is disabled or missing. FAILED and TIMEOUT indicate incomplete coverage. No mock findings are added to real analyses.'}</div></div>;
   const severity = { key: 'severity', label: 'SEVERITY', render: row => <Badge>{row.severity || 'UNKNOWN'}</Badge> };
   const definitions = {
     'Permissions': { rows: result.permissions || [], columns: [{ key: 'permissionName', label: 'PERMISSION', render: row => <span className="mono wrap-value">{row.permissionName}</span> }, { key: 'category', label: 'CATEGORY' }, severity, { key: 'description', label: 'CONTEXT', render: row => <span className="wrap-description">{row.description}</span> }] },
@@ -23,6 +24,7 @@ export default function ResultContent({ tab, result }) {
     'URLs': { rows: (result.urls || []).map((value, id) => ({ value, id })), columns: [{ key: 'value', label: 'EXTRACTED URL · PLAIN TEXT ONLY', render: row => <code className="wrap-value extracted-text">{row.value}</code> }] },
   };
   if (tab === 'Static Malware Analysis') return <StaticMalwareAnalysisTab result={result} />;
+  if (tab === 'YARA Analysis') return <YaraAnalysisTab result={result} />;
   if (tab === 'IOC Explorer') return <IOCExplorerTab result={result} />;
   if (tab === 'Threat Intelligence') return <ThreatIntelligenceTab result={result} />;
   if (tab === 'Risk Correlation') return <RiskCorrelationTab result={result} />;
@@ -30,6 +32,35 @@ export default function ResultContent({ tab, result }) {
   const definition = definitions[tab]; const filtered = definition.rows.filter(row => Object.values(row).some(value => String(value ?? '').toLowerCase().includes(query.toLowerCase())));
   const pageSize = 50; const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize)); const currentPage = Math.min(page, pageCount - 1);
   return <div className="result-data"><div className="result-filter"><span>{filtered.length} of {definition.rows.length} {tab.toLowerCase()}</span><input aria-label={`Filter ${tab.toLowerCase()}`} placeholder={`Filter ${tab.toLowerCase()}…`} value={query} onChange={e => { setQuery(e.target.value); setPage(0); }} /></div>{definition.rows.length ? <Table columns={definition.columns} rows={filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize)} /> : <EmptyState title={`No ${tab.toLowerCase()} available`} message={result.status === 'UPLOADED' ? 'Start the static analysis to extract findings.' : activeStatuses.includes(result.status) ? 'The analysis is still in progress. Findings will appear when processing finishes.' : 'No entries were extracted. Check Tool Status to understand analysis coverage.'} />}{pageCount > 1 && <nav className="result-pagination" aria-label={`${tab} pagination`}><span>Page {currentPage + 1} of {pageCount} · {pageSize} per page</span><div className="apk-actions"><Button variant="secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</Button><Button variant="secondary" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</Button></div></nav>}{['Strings', 'URLs'].includes(tab) && <p className="extracted-note">Extracted content is displayed as untrusted plain text. Addresses are not opened or visited.</p>}</div>;
+}
+
+function YaraAnalysisTab({ result }) {
+  const [analysis, setAnalysis] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    getYaraAnalysis(result.scanId, controller.signal).then(setAnalysis).catch(e => { if (e.code !== 'ERR_CANCELED') setError(e.response?.data?.message || 'Could not load YARA results.'); });
+    return () => controller.abort();
+  }, [result.scanId]);
+  async function run() {
+    setBusy(true); setError('');
+    try { setAnalysis(await runYaraAnalysis(result.scanId)); }
+    catch (e) { setError(e.response?.data?.message || 'YARA analysis failed.'); }
+    finally { setBusy(false); }
+  }
+  const columns = [
+    { key: 'ruleName', label: 'RULE', render: row => <strong>{row.ruleName}</strong> },
+    { key: 'severity', label: 'SEVERITY', render: row => <Badge>{row.severity}</Badge> },
+    { key: 'description', label: 'DESCRIPTION', render: row => <span className="wrap-description">{row.description}</span> },
+    { key: 'evidence', label: 'EVIDENCE', render: row => <code className="wrap-value extracted-text">{row.evidence}</code> },
+  ];
+  return <div className="result-data"><div className="panel-heading"><div><h2>YARA analysis</h2><p>Local rules inspect extracted files. A rule match is an indicator for review.</p></div><Button disabled={result.status !== 'COMPLETED' || busy} onClick={run}>{busy ? 'Scanning…' : 'Run YARA'}</Button></div>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    {analysis?.mode === 'DEMO' && <div className="sample-banner"><strong>DEMO / MOCK RESULT</strong><span>These synthetic findings are not evidence from this APK.</span><Badge tone="amber">DEMO DATA</Badge></div>}
+    {analysis?.message && <div className="info-note">{analysis.message}</div>}
+    {analysis?.matches?.length ? <Table columns={columns} rows={analysis.matches} /> : <EmptyState title="No YARA matches" message={analysis?.status === 'SUCCESS' ? 'Configured local rules did not match the extracted files.' : analysis?.status === 'NOT_RUN' || !analysis ? 'Run YARA after the APK analysis completes.' : 'The local scan did not complete; review its status above.'} />}
+  </div>;
 }
 
 function StaticMalwareAnalysisTab({ result }) {
@@ -429,11 +460,11 @@ function RiskCorrelationTab({ result }) {
     setLoading(true);
     setError('');
     try {
-      const result = await getRiskAssessment(result.scanId);
-      setAssessment(result);
-      setIndicators(result.indicators || []);
-      setBreakdown(result.breakdown);
-      setRecommendations(result.recommendations || []);
+      const assessmentResult = await getRiskAssessment(result.scanId);
+      setAssessment(assessmentResult);
+      setIndicators(assessmentResult.indicators || []);
+      setBreakdown(assessmentResult.breakdown);
+      setRecommendations(assessmentResult.recommendations || []);
     } catch (e) {
       if (e.status !== 404) setError(e.message || 'Failed to load risk assessment');
     } finally {
@@ -445,11 +476,11 @@ function RiskCorrelationTab({ result }) {
     setCalculating(true);
     setError('');
     try {
-      const result = await calculateRisk(result.scanId);
-      setAssessment(result);
-      setIndicators(result.indicators || []);
-      setBreakdown(result.breakdown);
-      setRecommendations(result.recommendations || []);
+      const assessmentResult = await calculateRisk(result.scanId);
+      setAssessment(assessmentResult);
+      setIndicators(assessmentResult.indicators || []);
+      setBreakdown(assessmentResult.breakdown);
+      setRecommendations(assessmentResult.recommendations || []);
     } catch (e) {
       setError(e.message || 'Failed to calculate risk');
     } finally {

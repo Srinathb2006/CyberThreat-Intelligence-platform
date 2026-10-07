@@ -315,13 +315,65 @@ public class ReportService {
             assessMap.put("riskLevel", assessment.getRiskLevel());
             assessMap.put("confidence", assessment.getConfidence());
             assessMap.put("summary", assessment.getSummary());
-            assessMap.put("indicators", indicators);
+            assessMap.put("indicators", indicators.stream().map(ind -> {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", ind.getId());
+                item.put("sourceType", ind.getSourceType());
+                item.put("sourceId", ind.getSourceId());
+                item.put("category", ind.getCategory());
+                item.put("description", ind.getDescription());
+                item.put("severity", ind.getSeverity());
+                item.put("confidence", ind.getConfidence());
+                item.put("contribution", ind.getContribution());
+                item.put("evidence", ind.getEvidence());
+                item.put("createdAt", ind.getCreatedAt());
+                return item;
+            }).toList());
             report.put("riskAssessment", assessMap);
         }
 
-        report.put("malwareFindings", malwareFindings);
-        report.put("iocs", iocs);
-        report.put("threatMatches", threatMatches);
+        report.put("malwareFindings", malwareFindings.stream().map(finding -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", finding.id);
+            item.put("category", finding.category);
+            item.put("title", finding.title);
+            item.put("description", finding.description);
+            item.put("evidence", finding.evidence);
+            item.put("severity", finding.severity);
+            item.put("confidence", finding.confidence);
+            item.put("source", finding.source);
+            item.put("ruleId", finding.ruleId);
+            item.put("createdAt", finding.createdAt);
+            return item;
+        }).toList());
+        report.put("iocs", iocs.stream().map(ioc -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", ioc.id);
+            item.put("value", ioc.value);
+            item.put("type", ioc.type);
+            item.put("source", ioc.source);
+            item.put("severity", ioc.severity);
+            item.put("confidence", ioc.confidence);
+            item.put("description", ioc.description);
+            item.put("firstSeen", ioc.firstSeen);
+            item.put("lastSeen", ioc.lastSeen);
+            item.put("createdAt", ioc.createdAt);
+            return item;
+        }).toList());
+        report.put("threatMatches", threatMatches.stream().map(match -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", match.id);
+            item.put("iocId", match.ioc.id);
+            item.put("indicator", match.threatIntelligence.indicator);
+            item.put("threatName", match.threatIntelligence.threatName);
+            item.put("matchType", match.matchType);
+            item.put("status", match.status);
+            item.put("severity", match.severity);
+            item.put("confidence", match.confidence);
+            item.put("description", match.description);
+            item.put("matchedAt", match.matchedAt);
+            return item;
+        }).toList());
         report.put("alerts", alerts.stream().map(a -> Map.of(
                 "id", a.getId(),
                 "title", a.getTitle(),

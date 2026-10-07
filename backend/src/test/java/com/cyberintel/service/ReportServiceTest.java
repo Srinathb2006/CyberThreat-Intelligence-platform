@@ -165,13 +165,19 @@ class ReportServiceTest {
     @Test
     @DisplayName("generateJsonReport: generates structured JSON document containing scan, APK, findings, IOCs, and alerts")
     void generateJsonReport_generatesValidJson() {
+        RiskIndicator indicator = new RiskIndicator();
+        indicator.setSourceType("malware_finding");
+        indicator.setCategory("DYNAMIC_LOADING");
+        indicator.setSeverity("HIGH");
+        indicator.setConfidence("HIGH");
+        sampleAssessment.addIndicator(indicator);
         when(scanRepository.findById(100L)).thenReturn(Optional.of(sampleScan));
         when(apkAnalysisRepository.findByScanId(100L)).thenReturn(Optional.of(sampleAnalysis));
         when(riskAssessmentRepository.findByScanIdAndIsLatestTrue(100L)).thenReturn(Optional.of(sampleAssessment));
         when(malwareFindingRepository.findByApkAnalysisId(10L)).thenReturn(List.of(sampleFinding));
         when(iocRepository.findByApkAnalysisId(10L)).thenReturn(List.of(sampleIoc));
         when(threatMatchRepository.findMatchedByIocId(301L)).thenReturn(List.of(sampleThreatMatch));
-        when(riskIndicatorRepository.findByRiskAssessmentId(50L)).thenReturn(Collections.emptyList());
+        when(riskIndicatorRepository.findByRiskAssessmentId(50L)).thenReturn(List.of(indicator));
         when(alertRepository.findByScanIdOrderByCreatedAtDesc(100L)).thenReturn(Collections.emptyList());
 
         byte[] jsonBytes = reportService.generateJsonReport(100L);
@@ -183,6 +189,7 @@ class ReportServiceTest {
         assertThat(json).contains("com.trojan.bankbot");
         assertThat(json).contains("DexClassLoader Invocation");
         assertThat(json).contains("c2-bankbot.com");
+        assertThat(json).contains("malware_finding");
     }
 
     @Test

@@ -45,7 +45,7 @@ public class ApkAnalysisState {
   var a=owned(id,email,true);var status=a.scan.getStatus();
   if(status==Scan.Status.COMPLETED || status==Scan.Status.FAILED || status==Scan.Status.CANCELLED)return dto(a);
   a.scan.setStatus(Scan.Status.CANCELLED);a.scan.setCompletedAt(Instant.now());a.completedAt=Instant.now();a.stage="Cancelled";a.message="Analysis cancelled. No APK was executed.";
-  for(String tool:List.of("jadx","apktool","aapt"))if(toolStatus(a,tool).equals("RUNNING"))setTool(a,tool,"CANCELLED");
+  for(String tool:List.of("jadx","apktool","aapt","androguard"))if(toolStatus(a,tool).equals("RUNNING"))setTool(a,tool,"CANCELLED");
   return dto(a);
  }
  @Transactional public void finish(long id,Findings result,String message){
@@ -60,12 +60,12 @@ public class ApkAnalysisState {
  }
  @Transactional public void recoverInterrupted(){for(var a:analyses.findInterrupted()){a.scan.setStatus(Scan.Status.FAILED);a.stage="Interrupted";a.message="Server restarted during analysis. Upload again to retry.";a.completedAt=Instant.now();a.scan.setCompletedAt(a.completedAt);}}
  @Transactional public void expireArtifacts(long id){var a=analyses.lockByScanId(id).orElseThrow();a.artifactsRetained=false;if(a.scan.getStatus()==Scan.Status.UPLOADED){a.scan.setStatus(Scan.Status.FAILED);a.stage="Expired";a.message="Upload expired under the retention policy. Upload again to analyze.";a.completedAt=Instant.now();a.scan.setCompletedAt(a.completedAt);}}
- public static void setTool(ApkAnalysis a,String tool,String status){switch(tool){case "jadx"->a.jadxStatus=status;case "apktool"->a.apktoolStatus=status;case "aapt"->a.aaptStatus=status;default->throw new IllegalArgumentException();}}
- private static String toolStatus(ApkAnalysis a,String tool){return switch(tool){case "jadx"->a.jadxStatus;case "apktool"->a.apktoolStatus;default->a.aaptStatus;};}
+ public static void setTool(ApkAnalysis a,String tool,String status){switch(tool){case "jadx"->a.jadxStatus=status;case "apktool"->a.apktoolStatus=status;case "aapt"->a.aaptStatus=status;case "androguard"->a.androguardStatus=status;default->throw new IllegalArgumentException();}}
+ private static String toolStatus(ApkAnalysis a,String tool){return switch(tool){case "jadx"->a.jadxStatus;case "apktool"->a.apktoolStatus;case "aapt"->a.aaptStatus;case "androguard"->a.androguardStatus;default->throw new IllegalArgumentException();};}
  private Result dto(ApkAnalysis a){
   Map<String,Object> summary;try{summary=json.readValue(a.sourceSummary,new TypeReference<>(){});}catch(Exception e){summary=Map.of();}
   return new Result(a.scan.getId(),a.scan.getTarget(),a.fileSize,a.sha256,a.md5,a.scan.getStatus().name(),a.stage,a.progress,a.analysisMode,a.message,
-   new Metadata(a.packageName,a.applicationName,a.versionName,a.versionCode,a.minSdk,a.targetSdk),Map.of("jadx",a.jadxStatus,"apktool",a.apktoolStatus,"aapt",a.aaptStatus),
+   new Metadata(a.packageName,a.applicationName,a.versionName,a.versionCode,a.minSdk,a.targetSdk),Map.of("jadx",a.jadxStatus,"apktool",a.apktoolStatus,"aapt",a.aaptStatus,"androguard",a.androguardStatus),
    a.permissions.stream().map(p->new Permission(p.permissionName,p.category,p.severity,p.description)).toList(),
    a.components.stream().map(c->new Component(c.componentType,c.componentName,c.exported,c.permission,c.severity)).toList(),
    a.apiFindings.stream().map(f->new Api(f.className,f.methodName,f.apiName,f.category,f.severity,f.description)).toList(),

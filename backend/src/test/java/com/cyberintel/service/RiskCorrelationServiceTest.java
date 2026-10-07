@@ -59,6 +59,8 @@ class RiskCorrelationServiceTest {
     private ThreatMatchRepository threatMatchRepository;
     @Mock
     private ScanRepository scanRepository;
+    @Mock
+    private AlertService alertService;
 
     private RiskScoringProperties scoringProperties;
     private RiskCorrelationService riskCorrelationService;
@@ -79,7 +81,9 @@ class RiskCorrelationServiceTest {
                 malwareFindingRepository,
                 iocRepository,
                 threatMatchRepository,
-                scanRepository
+                scanRepository,
+                alertService,
+                new com.fasterxml.jackson.databind.ObjectMapper()
         );
 
         sampleUser = new User("Test User", "test@cyberintel.com", "password123");
@@ -145,6 +149,11 @@ class RiskCorrelationServiceTest {
         verify(riskAssessmentRepository).save(any(RiskAssessment.class));
         verify(riskIndicatorRepository).saveAll(Collections.emptyList());
         verify(scanRepository).save(sampleScan);
+        var savedBeforeAlerts = inOrder(riskAssessmentRepository, riskIndicatorRepository, scanRepository, alertService);
+        savedBeforeAlerts.verify(riskAssessmentRepository).save(any(RiskAssessment.class));
+        savedBeforeAlerts.verify(riskIndicatorRepository).saveAll(Collections.emptyList());
+        savedBeforeAlerts.verify(scanRepository).save(sampleScan);
+        savedBeforeAlerts.verify(alertService).generateAlertsFromAssessment(100L);
         assertThat(sampleScan.getRiskScore()).isEqualTo(0);
         assertThat(sampleScan.getRiskLevel()).isEqualTo(Scan.RiskLevel.LOW);
     }
@@ -592,6 +601,24 @@ class RiskCorrelationServiceTest {
                 "PRIVILEGE_ESCALATION",
                 "RANSOMWARE"
         );
+
+        ArgumentCaptor<RiskAssessment> saved = ArgumentCaptor.forClass(RiskAssessment.class);
+        verify(riskAssessmentRepository).save(saved.capture());
+        RiskAssessment assessment = saved.getValue();
+        assessment.setId(900L);
+        assertThat(assessment.getRecommendations()).isNotBlank();
+        when(riskAssessmentRepository.findByScanIdAndIsLatestTrue(100L)).thenReturn(Optional.of(assessment));
+        when(riskIndicatorRepository.findByRiskAssessmentIdOrderByContributionDesc(900L))
+                .thenReturn(assessment.getIndicators());
+        when(riskIndicatorRepository.findByRiskAssessmentId(900L)).thenReturn(assessment.getIndicators());
+
+        // Reload uses the saved snapshot even if the original evidence has changed.
+        sampleAnalysis.permissions.clear();
+        sampleAnalysis.components.clear();
+        assertThat(riskCorrelationService.getLatestRisk(100L).recommendations())
+                .containsExactlyElementsOf(result.recommendations());
+        assertThat(riskCorrelationService.getRecommendations(100L))
+                .containsExactlyElementsOf(result.recommendations());
     }
 
     // =========================================================================

@@ -18,7 +18,7 @@ public class AnalysisStorage {
  public Path upload(String key){if(!key.matches("[a-f0-9-]{36}"))throw new IllegalArgumentException("Invalid storage identifier");return checked(uploads.resolve(key+".apk"));}
  public Path scan(long id)throws IOException{if(id<1)throw new IllegalArgumentException("Invalid scan identifier");Path p=checked(root.resolve("scans").resolve(Long.toString(id)));safeDirectory(p);return p;}
  public Path area(long id,String name)throws IOException{
-  if(!Set.of("jadx","apktool","aapt","extracted","temporary").contains(name))throw new IllegalArgumentException("Invalid analysis area");
+  if(!Set.of("jadx","apktool","aapt","androguard","extracted","temporary").contains(name))throw new IllegalArgumentException("Invalid analysis area");
   Path path=scan(id).resolve(name);safeDirectory(path);return checked(path);
  }
  public Path checked(Path path){

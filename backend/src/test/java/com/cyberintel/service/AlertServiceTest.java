@@ -165,6 +165,14 @@ class AlertServiceTest {
     }
 
     @Test
+    void getAlerts_withoutSearchBindsAnEmptyString() {
+        when(alertRepository.findFiltered(null, null, "")).thenReturn(List.of());
+
+        assertThat(alertService.getAlerts(null, null, null)).isEmpty();
+        verify(alertRepository).findFiltered(null, null, "");
+    }
+
+    @Test
     @DisplayName("getAlertById: returns alert DTO when found")
     void getAlertById_returnsDto() {
         Alert alert = new Alert("Malware Alert", "Trojan found", Alert.Severity.HIGH, "Scanner", sampleScan);

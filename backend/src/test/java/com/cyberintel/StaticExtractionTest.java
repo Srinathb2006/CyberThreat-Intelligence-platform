@@ -18,6 +18,10 @@ class StaticExtractionTest {
   assertThat(findings.permissions.get(0).severity()).isEqualTo("HIGH");
   extractor.readBadging("package: name='org.real' versionCode='9' versionName='2.0'\nsdkVersion:'24'\ntargetSdkVersion:'35'\napplication-label:'Real'\nuses-permission: name='android.permission.INTERNET'",findings);
   assertThat(findings.metadata.packageName()).isEqualTo("org.real");assertThat(findings.metadata.minSdk()).isEqualTo("24");assertThat(findings.permissions).hasSize(2);
+  extractor.readBadging("package: name='org.aapt2' versionCode='3' versionName='1.0'\nminSdkVersion:'26'\ntargetSdkVersion:'35'\napplication-label:'AAPT2'\nuses-permission: name='android.permission.READ_EXTERNAL_STORAGE'",findings);
+  assertThat(findings.metadata.packageName()).isEqualTo("org.aapt2");
+  assertThat(findings.metadata.minSdk()).isEqualTo("26");
+  assertThat(findings.permissions).hasSize(3);
  }
  @Test void rejectsArchiveTraversalAndXmlEntities()throws Exception{
   Path apk=temp.resolve("fixture.apk");var validator=new ApkArchiveValidator(new AnalysisRuntimeProperties());

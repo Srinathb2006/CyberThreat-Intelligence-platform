@@ -9,6 +9,8 @@ export async function listApkScans(signal) { return (await api.get('/apk-analysi
 export async function getApkScan(id, signal) { return (await api.get(`/apk-analysis/${id}`, { signal })).data; }
 export async function startApkScan(id) { return (await api.post(`/apk-analysis/${id}/start`)).data; }
 export async function cancelApkScan(id) { return (await api.post(`/apk-analysis/${id}/cancel`)).data; }
+export async function getYaraAnalysis(id, signal) { return (await api.get(`/apk-analysis/${id}/yara`, { signal })).data; }
+export async function runYaraAnalysis(id) { return (await api.post(`/apk-analysis/${id}/yara`, null, { timeout: 180000 })).data; }
 
 export async function runStaticAnalysis(scanId, mock = false, signal) {
   return (await api.post(`/static-analysis/${scanId}`, null, { params: { mock }, signal })).data;

@@ -136,7 +136,7 @@ public class AlertService {
         Alert.Status status = parseStatus(statusStr);
         Alert.Severity severity = parseSeverity(severityStr);
 
-        List<Alert> alerts = alertRepository.findFiltered(status, severity, search);
+        List<Alert> alerts = alertRepository.findFiltered(status, severity, search == null ? "" : search);
         return alerts.stream().map(this::toDto).toList();
     }
 

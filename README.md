@@ -1,188 +1,106 @@
-# Reverse Engineering Based Cyber Threat Intelligence Platform
+# CyberIntel
 
-A final-year cybersecurity platform for static Android APK investigation. Step 1 supplies the SOC interface, authentication, and database foundation. Step 2 adds authenticated APK upload, hashing, asynchronous reverse engineering, extracted findings, and scan history.
-
-**APK files are analyzed statically and are never executed, installed, rebuilt, or launched.** The backend runs only configured JADX, Apktool, and aapt/aapt2 tools for static inspection. See [APK analysis setup and API](docs/APK_ANALYSIS.md) for Step 2 configuration and limitations.
+CyberIntel is a local cyber threat investigation workspace built around static Android APK inspection. It also includes rule-based URL and phishing checks, a database-backed threat-intelligence catalog, IOC exploration, risk correlation, alerts, reports, and a lightweight endpoint demo. It does not execute APKs or visit submitted URLs.
 
 ## Architecture
 
 ```text
-React / Vite interface
-        │ HTTPS REST + Bearer JWT (HTTP for localhost development)
-Spring Boot controllers → DTO validation → services
-        │                                 │
-Spring Security                      AnalysisToolService
-        │                                 │
-Spring Data JPA / Hibernate           JADX, Apktool, aapt/aapt2
-        │                            Androguard / YARA remain planned
-PostgreSQL + Flyway migrations
+React / Vite (JavaScript) → REST API with bearer JWT → Spring Boot (Java 17 target)
+                                                    ├─ Spring Security, services, JPA
+                                                    ├─ PostgreSQL + Flyway (V1–V17)
+                                                    └─ private APK/analysis storage
+                                                         └─ bounded local tool processes
+                                                            JADX, Apktool, aapt, Androguard
 ```
 
-The implemented pipeline is upload → bounded archive validation → SHA-256/MD5 → queued static tools → metadata, permissions, components, API references, strings, URLs → persisted results. Threat intelligence, malware verdicts, YARA scoring, correlation, and risk scoring remain future work. Executable paths come from trusted operator configuration, never a request.
+The backend validates and stores uploads, runs up to two APK jobs with eight queued, and persists findings. Configured tools receive fixed arguments and server-controlled paths. YARA runs separately against retained extraction output. The frontend polls APK progress and calls the other analysis APIs on demand. H2 is used in automated backend tests; that test profile disables Flyway and lets Hibernate create the test schema.
 
-## Technology
+## Modules and current data sources
 
-- Frontend: JavaScript and JSX, React, Vite, Tailwind CSS, React Router, Axios, Recharts, Lucide React. No TypeScript source.
-- Backend: **Java 17**, matching the installed system JDK as requested, Spring Boot 3.5.16, Maven, Spring Security, BCrypt, JJWT.
-- Database: PostgreSQL, Spring Data JPA, Hibernate, Flyway SQL migrations. H2 is test-only.
+| Module | Implemented behavior |
+| --- | --- |
+| APK Analysis | Owned upload/history, hashes, asynchronous static extraction, metadata, permissions, components, APIs, strings, URLs, tool status, and on-demand YARA results. |
+| Static Malware Analysis | Rule-based findings and IOC extraction from a stored APK analysis, started separately after APK analysis. |
+| Threat Intelligence | Local database catalog with seeded demo records, CRUD/import/export endpoints, and IOC matching. No live provider or external reputation API is connected. |
+| IOC Explorer | Searches the existing IOC tables with type, severity, confidence, and scan filters, details, and local intelligence-match information. |
+| Risk Correlation | On-demand, weighted assessment of stored APK findings, IOCs, and matches. Persists indicators, breakdown, confidence, recommendations, and the latest assessment. |
+| Alerts | Automatically generated after successful risk calculation when configured conditions are met; list, filter, status update, resolve, and stats APIs. |
+| Reports | On-demand PDF and JSON reports plus findings, IOCs, threat matches, and summary CSV exports for a scan. |
+| Scan History | Search and filter stored scan records and linked analysis counts. |
+| URL Scanner | Validates HTTP(S) input, scores local lexical/structural indicators, and saves per-user results. It makes no network request to the URL. |
+| Phishing Detection | Stateless, explainable static URL and redirect-parameter checks. No page fetch, ML, or external API. |
+| Endpoint Monitoring | Owned device records, status fields, and explicitly labeled simulated security events and risk summaries. No device agent or telemetry collection. |
+| Dashboard | API-backed aggregate counts when available; trends and distribution charts remain sample data. The recent-event list and counts can fall back to samples when the API fails or has no alerts. |
 
-## Layout
+The development demo login is a frontend-only mock session and cannot call authenticated analysis APIs. Use a registered backend account for live modules. Some older authenticated endpoints are not owner-scoped; see [Security limitations](#security-limitations) before deploying for multiple users.
 
-```text
-frontend/src/
-  api/          HTTP client and replaceable service adapters
-  components/   Reusable interface elements
-  layouts/      Sidebar and application shell
-  pages/        Login, dashboard, and investigation modules
-  routes/       Protected application navigation
-  hooks/        Shared state and behavior
-  utils/        Session and presentation helpers
-backend/src/main/java/com/cyberintel/
-  config/       CORS, security, and analysis properties
-  controller/   REST endpoints
-  dto/          Validated requests and safe user responses
-  entity/       User, Scan, Alert, Role
-  repository/   Parameterized JPA persistence
-  service/      Authentication and planned static tool adapters
-  security/     JWT generation/validation and user loading
-  exception/    Consistent API errors
-  util/         Email normalization and preliminary APK checks
-backend/src/main/resources/db/migration/
-  V1__foundation.sql
-```
+## Setup
 
-## Frontend setup
+Use JDK 17 or newer, Maven, Node.js/npm, and PostgreSQL. The Maven compiler targets Java 17. Create a PostgreSQL database and a login with permission to run Flyway migrations on that database. No database user is seeded by the application.
 
-Install Node.js and npm. In `frontend`:
+From `backend`, copy `.env.example` to `.env`, then set `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, and a strong `JWT_SECRET` of at least 32 UTF-8 bytes. The backend loads `.env` from the `backend` or project-root launch directory. Environment variables override file values. Start it with:
 
 ```powershell
-npm install
-Copy-Item .env.example .env.local
-npm run dev
-```
-
-Open the local URL printed by Vite (normally http://localhost:5173).
-
-`VITE_API_BASE_URL` configures the REST base URL; use `http://localhost:7070/api` for the backend below. Frontend environment variables are public and must never contain secrets.
-
-For the development-only demo, set `VITE_ENABLE_DEMO=true` in `.env.local` and restart Vite. Log in with `admin@cyberintel.local` / `Admin@123`. This is a mock session, not a database account or usable backend JWT. Demo authentication is guarded by Vite development mode and is unavailable in production builds. Disable the flag to use real authentication.
-
-Dashboard and other investigation modules retain labeled samples. APK Analysis now uses the live backend: create a real account on the login page, upload an APK, and start analysis. The frontend demo account cannot upload. When no configured tool is available, the backend returns prominently labeled deterministic MOCK findings; it never silently substitutes mock findings for failed real tools.
-
-```powershell
-npm run lint
-npm run build
-npm run preview
-```
-
-For production hosting, serve `frontend/dist`, configure an SPA fallback to `index.html` for React routes, and use HTTPS for both the site and API.
-
-## PostgreSQL setup
-
-Create a dedicated database and login using your PostgreSQL administrator account:
-
-```sql
-CREATE ROLE cyberintel LOGIN;
--- In psql, set its password interactively: \password cyberintel
-CREATE DATABASE cyberintel OWNER cyberintel;
-```
-
-Use a strong unique password. The application needs schema migration permissions on its own database. For a production deployment, separate the migration account from the runtime account.
-
-Flyway creates the tables and indexes on first startup. Hibernate validates the schema rather than silently changing it. User emails are normalized and unique. Each scan belongs to a user; an alert can reference a scan. No default database users or plaintext passwords are seeded.
-
-## Backend setup
-
-Install/use JDK **17 or newer** and Maven 3.6.3 or newer. The Maven compiler targets Java 17.
-
-Copy `backend/.env.example` to `backend/.env` and fill in your database credentials and JWT secret. The backend loads this file when launched from the project root or `backend` directory. Use unquoted Java properties values (escape Windows path backslashes or use forward slashes). Environment variables override file values. Alternatively, export the values in the terminal running Maven or set them in the IDE run configuration:
-
-```powershell
-$env:DB_URL = 'jdbc:postgresql://localhost:5432/cyberintel'
-$env:DB_USERNAME = 'cyberintel'
-$env:DB_PASSWORD = Read-Host 'Database password' -MaskInput
-$env:JWT_SECRET = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(48))
-$env:CORS_ALLOWED_ORIGINS = 'http://localhost:5173,http://127.0.0.1:5173'
 cd backend
 mvn spring-boot:run
 ```
 
-The password prompt example requires PowerShell 7. Persist the JWT secret in a secret manager for deployed environments; generating a new secret invalidates existing tokens. Never commit it. API port defaults to 7070.
-
-Build and test:
+The API defaults to `http://localhost:7070/api`. Flyway applies migrations V1–V17 on normal startup; Hibernate validates the resulting schema. From `frontend`, copy `.env.example` to `.env.local`, check `VITE_API_BASE_URL`, install dependencies, and start Vite:
 
 ```powershell
-mvn verify
-java -jar target/cyberintel-0.1.0.jar
+cd frontend
+npm ci
+npm run dev
 ```
 
-Tests use an isolated H2 database and a test-only key. A production startup requires the PostgreSQL credentials and JWT secret.
+Open the URL printed by Vite (normally `http://127.0.0.1:5173`). The backend's default CORS origins include both `127.0.0.1:5173` and `localhost:5173`. Register a user in the login screen, then sign in. Frontend `VITE_*` values are public; do not put secrets in them.
 
-## Configuration reference
+To opt into the local demonstration login during Vite development only, set `VITE_ENABLE_DEMO=true` and restart Vite. The demonstration account (`admin@cyberintel.local` / `Admin@123`) is not a database user or valid backend token. Production builds do not enable that login.
 
-| Variable | Purpose / default |
+## Configuration
+
+See [backend/.env.example](backend/.env.example), [application.yml](backend/src/main/resources/application.yml), and [frontend/.env.example](frontend/.env.example) for the exact properties and defaults.
+
+| Variables | Purpose |
 | --- | --- |
-| `DB_URL` | `jdbc:postgresql://localhost:5432/cyberintel` |
-| `DB_USERNAME`, `DB_PASSWORD` | Required PostgreSQL credentials |
-| `JWT_SECRET` | Required random secret of at least 32 UTF-8 bytes |
-| `JWT_EXPIRATION_SECONDS` | 3600; allowed range 60–86400 |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated exact origins; defaults to `http://localhost:5173,http://127.0.0.1:5173`; wildcard rejected |
-| `PORT` | 7070 |
-| `UPLOAD_DIRECTORY` | `./analysis/uploads`; server-controlled APK storage |
-| `MAX_APK_SIZE` | `50MB`; multipart and preliminary validator limit |
-| `JADX_PATH`, `APKTOOL_PATH`, `AAPT_PATH`, `ANDROGUARD_PATH`, `YARA_PATH` | Trusted operator paths, empty by default |
-| `JADX_ENABLED`, `APKTOOL_ENABLED`, `AAPT_ENABLED` | `false`; enable only with a trusted tool path |
-| `ANDROGUARD_ENABLED`, `YARA_ENABLED` | `false`; integration remains planned |
-| `ANALYSIS_DIRECTORY` | `./analysis`; private scan output root |
-| `ANALYSIS_TIMEOUT_SECONDS` | 120 per tool |
-| `ANALYSIS_RETENTION_DAYS` | 7; hourly artifact cleanup, database results retained |
-| `VITE_API_BASE_URL` | Frontend REST base URL |
-| `VITE_ENABLE_DEMO` | Opt-in development-only demo authentication |
+| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection; URL defaults to `jdbc:postgresql://localhost:5432/cyberintel`. |
+| `JWT_SECRET`, `JWT_EXPIRATION_SECONDS` | Signing secret (required) and token lifetime (default 3600 seconds). |
+| `PORT`, `CORS_ALLOWED_ORIGINS` | API port (7070) and explicit allowed browser origins. |
+| `UPLOAD_DIRECTORY`, `ANALYSIS_DIRECTORY`, `MAX_APK_SIZE` | Private upload/output roots and compressed APK limit (50 MB). |
+| `MAX_APK_EXPANDED_BYTES`, `MAX_APK_ENTRIES`, `MAX_ANALYSIS_OUTPUT_BYTES` | Archive and tool-output limits (256 MiB, 20,000 entries, 512 MiB). |
+| `ANALYSIS_TIMEOUT_SECONDS`, `ANALYSIS_RETENTION_DAYS` | Per-tool timeout (120 seconds) and artifact retention (7 days). |
+| `JADX_ENABLED/PATH`, `APKTOOL_ENABLED/PATH`, `AAPT_ENABLED/PATH` | Optional trusted local static tools; all disabled by default. |
+| `ANDROGUARD_ENABLED/PATH` | Optional Androguard integration; path points to a local Python executable with Androguard installed. |
+| `YARA_ENABLED/PATH`, `YARA_RULES_DIRECTORY` | Optional local YARA executable and `.yar`/`.yara` rule directory. |
+| `VITE_API_BASE_URL`, `VITE_ENABLE_DEMO` | Frontend API base and development-only mock login switch. |
 
-## Authentication API
+Use absolute paths for tool executables. The server does not accept tool paths from API requests. [APK analysis](docs/APK_ANALYSIS.md), [Androguard](docs/ANDROGUARD_ANALYSIS.md), and [YARA](docs/YARA_ANALYSIS.md) give the tool-specific details.
 
-| Method / route | Access | Result |
-| --- | --- | --- |
-| `POST /api/auth/register` | Public | 201, token and safe user DTO; role is always USER |
-| `POST /api/auth/login` | Public | 200, token and safe user DTO |
-| `GET /api/auth/me` | Bearer token | Current user DTO |
-| `GET /api/platform/status` | Bearer token | Platform readiness status |
-| `GET /api/admin/tools` | ADMIN only | Configured availability; Androguard/YARA remain NOT_IMPLEMENTED |
+## APK investigation workflow
 
-Registration body:
+1. Upload an `.apk`. The server validates the ZIP structure and manifest, applies size and entry limits, and records real SHA-256/MD5 hashes and file size.
+2. Select **Start scan**. The worker uses available configured JADX, Apktool, aapt, and Androguard tools. If none is enabled and available, it stores deterministic findings labeled **MOCK**. A failed real run does not silently become a mock success.
+3. Review metadata, extracted code/manifest indicators, and each tool's status. A partial real scan can complete with warnings. No APK is installed or executed.
+4. Select **Run Static Analysis** to generate rule-based malware findings and IOCs from the stored extraction. Run threat-intelligence correlation separately to compare those IOCs with the local catalog.
+5. Select **Calculate Risk** to persist a risk assessment and trigger alert generation. Reports can then be downloaded. The separate **Run YARA** action scans retained extraction files with local rules, or returns an explicitly labeled synthetic result when YARA is unavailable. YARA results are not currently fed into risk scoring or reports.
 
-```json
-{"name":"Analyst","email":"analyst@example.com","password":"choose-a-unique-password"}
-```
+The APK upload/history endpoint is scoped to its owner. Original uploaded filenames are display data; stored files use generated names. Temporary output is cleaned after a job, and the retention task removes old upload/output artifacts while keeping database findings. Detailed endpoints and limits are in [APK_ANALYSIS.md](docs/APK_ANALYSIS.md).
 
-Login body contains `email` and `password`. A successful login/registration returns:
+## Risk, alerts, and reports
 
-```json
-{"token":"<signed JWT>","user":{"id":1,"name":"Analyst","email":"analyst@example.com","role":"USER"}}
-```
+The APK risk score is an on-demand heuristic, not a malware verdict or probability. Each evidence category has a cap: static findings 25, threat-intelligence matches 30, suspicious APIs 15, permissions 10, IOCs 10, URLs 5, components 3, and obfuscation/native indicators 2. Severity and confidence multipliers adjust contributions; the total is clamped to 0–100. The level is CRITICAL at 76 or above, HIGH at 51 or above, MEDIUM at 26 or above, and LOW below 26. The latest assessment and its recommendations survive reloads.
 
-Send `Authorization: Bearer <token>` to protected endpoints. Password hashes never appear in responses. Registration passwords require 10–72 characters and at most 72 UTF-8 bytes; the byte restriction avoids BCrypt truncation. Input DTOs reject unknown fields, including client-supplied roles.
+Risk calculation calls alert generation automatically. High/critical assessments, threat-intelligence indicators, and selected high/critical indicator categories can produce alerts; an existing scan/title pair is not recreated. Analysts can update or resolve alerts. Reports are generated from the current stored scan, finding, IOC, match, risk, and alert records when requested; they are not immutable historical snapshots. See [Risk, alerts, and reports](docs/RISK_ALERTS_REPORTS.md) for the API and limits.
 
-An administrator may provision roles directly through a trusted database administration workflow, for example `UPDATE app_users SET role='ANALYST' WHERE email='analyst@example.com';`. There is no public role escalation endpoint. Roles are reloaded from the database for each authenticated request.
+## Security limitations
 
-Errors consistently contain `success`, `message`, `timestamp`, and HTTP `status`. Validation, unauthorized requests, forbidden access, record conflicts, database failures, upload errors, and unexpected exceptions have dedicated handling.
+- Static indicators, YARA rule hits, and numeric scores require human review. Obfuscation, reflection, encrypted strings, native code, incomplete tools, and missing rule coverage can hide behavior. A low score does not establish safety.
+- URL and phishing modules parse supplied text only. They do not resolve hosts, connect to sites, observe redirects, inspect certificates, or verify live reputation. Endpoint events and their risk summaries are simulated.
+- **Authenticated does not mean owner-scoped across the whole API.** APK upload/history, URL scans, IOC Explorer, endpoint records, and YARA results check ownership. Several older scan-history, static-analysis, threat-correlation, risk, alert, and report routes query records by global ID or list without checking the caller's ownership. Do not treat this as a secure multi-tenant deployment without adding those checks.
+- Configured external parsers process untrusted APK bytes and are not an OS sandbox. Run the backend and tools under a low-privilege account with filesystem and network restrictions. Keep configured executables and rule files writable only by trusted operators.
+- Use HTTPS in deployments. JWTs are stored in browser session storage or, when "remember me" is selected, local storage; browser script compromise can expose them. Put rate limiting and access controls in front of any public deployment.
+- Dashboard charts and some fallback values are illustrative. The YARA demo result is synthetic, Androguard's mock fallback is part of the overall APK mock mode, and local seeded threat-intelligence records are demonstration content. Reports currently omit standalone URL/phishing/endpoint and YARA results.
 
-## Implementation status and security boundaries
+## Validation
 
-- Authentication, BCrypt, JWT signature/expiry checks, CORS, role protection, JPA entities, and migration are implemented.
-- APK upload, progress polling, cancellation, history, and eight result tabs are implemented. Other investigation modules retain their sample views.
-- `ApkAnalysisOrchestrator` coordinates configured JADX, Apktool, and aapt adapters. Androguard and YARA remain nonexecuting placeholders.
-- Upload validation checks extension, MIME hints, size, ZIP integrity, bounded expansion, entry paths, and manifest structure. It does not certify signatures, installability, or safety. UUID storage names, controlled output directories, bounded worker queues, tool timeouts, output limits, and retention cleanup are implemented.
-- Stateless bearer authentication does not use ambient cookies; CSRF is disabled for this API. Frontend token storage is subject to browser XSS risk; apply a restrictive CSP when deploying. Add rate limiting at the API gateway before public exposure.
-- Serve deployed traffic over HTTPS with a trusted TLS reverse proxy. Local HTTP is only for development.
-- No malware execution, sandbox detonation, arbitrary shell endpoint, final verdict, or risk scoring is included. Run external parsers under an unprivileged OS account in an isolated environment for untrusted samples.
-
-## Verification
-
-The backend builds on the installed Java 17.0.1. All 13 automated tests pass, including upload validation, SHA-256, ownership, mock fallback, cancellation, extraction, and process timeout. A separate PostgreSQL 18.2 database successfully ran migrations V1/V2 and Hibernate validation. H2 tests use a generated schema; migration verification runs against PostgreSQL.
-
-Frontend dependencies are installed with a committed lockfile. ESLint passes without errors or warnings, and the Vite production build passes. The production bundle was checked to exclude the development demo credentials and mock authentication token.
-
-Browser verification passed for login and all 12 sidebar pages at 1440, 768, and 375 pixels, with no runtime errors or page overflow. Navigation, filtering, dialogs, sample downloads, file checks, settings, and sign-out were exercised. Desktop and phone captures are saved in `frontend/screenshots`.
-
-The Spring Boot-managed Flyway version logs that PostgreSQL 18 is newer than its tested support range (through PostgreSQL 17). Migration and authentication passed on the installed PostgreSQL 18.2; use PostgreSQL 17 for that tested support range or validate an updated Flyway version before deployment.
+Run `mvn clean test` and `mvn clean package` from `backend`, and `npm run build` from `frontend`. The backend test profile uses H2 with Flyway disabled, so those commands do not prove migration behavior on a PostgreSQL server. The separate Python helper test can be run from `backend` with `python -B -m unittest discover -s src/test/python`. Results from the final cleanup run are reported in the accompanying task response, rather than embedded here as a stale claim.

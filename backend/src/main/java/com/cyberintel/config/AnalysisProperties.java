@@ -12,8 +12,9 @@ public class AnalysisProperties {
  public DataSize getMaxApkSize(){return maxApkSize;} public void setMaxApkSize(DataSize value){if(value.toBytes()<=0)throw new IllegalArgumentException("MAX_APK_SIZE must be positive");maxApkSize=value;}
  public Map<String,Tool> getTools(){return tools;} public void setTools(Map<String,Tool> value){tools=value;}
  public static class Tool {
-  private boolean enabled;private String path="";
+  private boolean enabled;private String path="";private String rulesDirectory="";
   public boolean isEnabled(){return enabled;}public void setEnabled(boolean value){enabled=value;}
   public String getPath(){return path;}public void setPath(String value){path=value;}
+  public String getRulesDirectory(){return rulesDirectory;}public void setRulesDirectory(String value){rulesDirectory=value;}
  }
 }

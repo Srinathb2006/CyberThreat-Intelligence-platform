@@ -17,6 +17,7 @@ import com.cyberintel.service.StaticMalwareAnalysisService;
 import com.cyberintel.service.IocExtractionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import java.util.stream.*;
 
@@ -40,6 +41,7 @@ public class StaticAnalysisController {
  }
 
  @PostMapping("/{scanId}")
+ @Transactional
  public ResponseEntity<StaticAnalysisSummary> runAnalysis(@PathVariable Long scanId,
                                                           @RequestParam(defaultValue = "false") boolean mock) {
   var analysis = analysisRepo.findByScanId(scanId).orElseThrow();

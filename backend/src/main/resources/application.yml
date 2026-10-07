@@ -43,6 +43,7 @@ app:
     yara:
       enabled: ${YARA_ENABLED:false}
       path: ${YARA_PATH:}
+      rules-directory: ${YARA_RULES_DIRECTORY:}
     aapt:
       enabled: ${AAPT_ENABLED:false}
       path: ${AAPT_PATH:}

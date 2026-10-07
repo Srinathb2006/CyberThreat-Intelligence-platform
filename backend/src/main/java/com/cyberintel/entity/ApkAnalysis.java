@@ -17,7 +17,7 @@ public class ApkAnalysis {
  @Column(nullable=false) public String stage="Uploaded";
  public int progress;
  @Column(length=1000) public String message="Ready to analyze.";
- public String jadxStatus="NOT_RUN",apktoolStatus="NOT_RUN",aaptStatus="NOT_RUN";
+ public String jadxStatus="NOT_RUN",apktoolStatus="NOT_RUN",aaptStatus="NOT_RUN",androguardStatus="NOT_RUN";
  public Instant startedAt,completedAt;
  @Column(nullable=false,updatable=false) public Instant createdAt=Instant.now();
  @Column(columnDefinition="text",nullable=false) public String sourceSummary="{}";

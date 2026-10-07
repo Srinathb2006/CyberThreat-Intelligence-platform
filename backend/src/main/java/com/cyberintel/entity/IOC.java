@@ -9,7 +9,7 @@ public class IOC {
  @ManyToOne(fetch=FetchType.LAZY,optional=false) @JoinColumn(name="apk_analysis_id",nullable=false) public ApkAnalysis apkAnalysis;
  @Column(name="ioc_value",length=2000) public String value;
  @Column(length=50) public String type;
- @Column(length=50) public String source;
+ @Column(length=512) public String source;
  @Column(length=20) public String severity;
  @Column(length=20) public String confidence;
  @Column(length=2000) public String description;
