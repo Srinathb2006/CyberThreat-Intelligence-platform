@@ -1,0 +1,3 @@
+ALTER TABLE risk_indicator
+ALTER COLUMN contribution TYPE DOUBLE PRECISION
+USING contribution::DOUBLE PRECISION;
